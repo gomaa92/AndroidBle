@@ -4,6 +4,7 @@ package com.gomaa.bleapp
 import android.Manifest
 import android.bluetooth.le.ScanResult
 import android.content.pm.PackageManager
+import android.os.Build
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -37,7 +38,24 @@ class ScanResultAdapter(
     ) : RecyclerView.ViewHolder(view) {
 
         fun bind(result: ScanResult) {
-            if (ActivityCompat.checkSelfPermission(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ActivityCompat.checkSelfPermission(
+                        itemView.context,
+                        Manifest.permission.BLUETOOTH_SCAN
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    mListener.requestConnectPermission()
+                    return
+                } else
+                    view.device_name.text = result.device.name ?: "Unnamed"
+            } else {
+                view.device_name.text = result.device.name ?: "Unnamed"
+                view.mac_address.text = result.device.address
+                view.signal_strength.text = "${result.rssi} dBm"
+                view.setOnClickListener { mListener.onDeviceClicked(result) }
+            }
+
+            /*if (ActivityCompat.checkSelfPermission(
                     itemView.context,
                     Manifest.permission.BLUETOOTH_CONNECT
                 ) != PackageManager.PERMISSION_GRANTED
@@ -47,10 +65,11 @@ class ScanResultAdapter(
             } else {
                 view.device_name.text = result.device.name ?: "Unnamed"
             }
+
             view.mac_address.text = result.device.address
             view.signal_strength.text = "${result.rssi} dBm"
             view.setOnClickListener { mListener.onDeviceClicked(result) }
+        }*/
         }
     }
-
 }

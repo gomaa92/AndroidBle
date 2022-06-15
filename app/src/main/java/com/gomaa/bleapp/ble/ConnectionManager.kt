@@ -5,15 +5,44 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 
 const val TAG = "ConnectionManager"
 
 object ConnectionManager {
     private val deviceGattMap = ConcurrentHashMap<BluetoothDevice, BluetoothGatt>()
+    private var listeners: MutableSet<WeakReference<ConnectionEventListener>> = mutableSetOf()
+
 
     fun servicesOnDevice(device: BluetoothDevice): List<BluetoothGattService>? =
         deviceGattMap[device]?.services
+
+    fun registerListener(listener: ConnectionEventListener) {
+        if (listeners.map { it.get() }.contains(listener)) {
+            return
+        }
+        listeners.add(WeakReference(listener))
+        listeners = listeners.filter { it.get() != null }.toMutableSet()
+        Log.d(TAG, "registerListener: Added listener $listener, ${listeners.size} listeners total")
+    }
+
+    fun unregisterListener(listener: ConnectionEventListener) {
+        // Removing elements while in a loop results in a java.util.ConcurrentModificationException
+        var toRemove: WeakReference<ConnectionEventListener>? = null
+        listeners.forEach {
+            if (it.get() == listener) {
+                toRemove = it
+            }
+        }
+        toRemove?.let {
+            listeners.remove(it)
+            Log.d(
+                TAG,
+                "unregisterListener: Removed listener ${it.get()}, ${listeners.size} listeners total"
+            )
+        }
+    }
 
     fun connect(device: BluetoothDevice, context: Context) {
         if (device.isConnected()) {
@@ -114,6 +143,7 @@ object ConnectionManager {
                         "onServicesDiscovered: Discovered ${services.size} services for ${device.address}"
                     )
                     printGattTable()
+                    listeners.forEach { it.get()?.onConnectionSetupComplete?.invoke(this) }
 
                 } else {
                     Log.d(
@@ -138,6 +168,12 @@ object ConnectionManager {
                             TAG,
                             "onCharacteristicRead: Read characteristic $uuid | value: ${value.toHexString()}"
                         )
+                        listeners.forEach {
+                            it.get()?.onCharacteristicRead?.invoke(
+                                gatt.device,
+                                this
+                            )
+                        }
                     }
                     BluetoothGatt.GATT_READ_NOT_PERMITTED -> {
                         Log.d(TAG, "onCharacteristicRead: Read not permitted for $uuid!")
@@ -164,6 +200,12 @@ object ConnectionManager {
                             TAG,
                             "onCharacteristicWrite: Wrote to characteristic $uuid | value: ${value.toHexString()}"
                         )
+                        listeners.forEach {
+                            it.get()?.onCharacteristicWrite?.invoke(
+                                gatt.device,
+                                this
+                            )
+                        }
 
                     }
                     BluetoothGatt.GATT_WRITE_NOT_PERMITTED -> {
@@ -208,6 +250,7 @@ object ConnectionManager {
                 Log.d(TAG, "doNextOperation: Disconnecting from ${device.address}")
                 gatt.close()
                 deviceGattMap.remove(device)
+                listeners.forEach { it.get()?.onDisconnect?.invoke(device) }
             }
             is CharacteristicWrite -> with(operation) {
                 gatt.findCharacteristic(characteristicUuid)?.let { characteristic ->
